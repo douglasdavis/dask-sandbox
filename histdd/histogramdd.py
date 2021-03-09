@@ -65,32 +65,35 @@ def dask_histogramdd(sample, bins, range, weights=None, density=None):
     name = "histogramdd-sum-" + token
 
     ######################################################################
-    ## Convert the bin and range definitions for each axis into a
-    ## delayed array of bin edges (for each dimension). In this
-    ## prototype the bins are _not_ delayed, naming is taking into
-    ## consider future compat. with delayed bin edge arrays.
-    possibly_delayed_bins = []
-    for b, r in zip(bins, range):
-        possibly_delayed_bins.append(_linspace_from_delayed(r[0], r[1], b + 1))
+    ## In this prototype the bins are _not_ delayed, the use of
+    ## _linspace_from_delayed is taking into consideration future
+    ## compatibility with delayed bin edge arrays. We're just
+    ## converting the pairs of bins and ranges definitions into a
+    ## bunch of (immediately available) arrays of bin edges.
+    bins_edges = [
+        _linspace_from_delayed(r[0], r[1], b + 1)
+        for b, r in zip(bins, range)
+    ]
     ## total number of bin edge arrays must be the total number of dimensions
-    assert len(possibly_delayed_bins) == D
-    (bins_ref, range_ref), deps = unpack_collections([possibly_delayed_bins, range])
+    assert len(bins_edges) == D
+    (bins_ref, ranges_ref), deps = unpack_collections([bins_edges, range])
 
     ######################################################################
     # New graph where the callable is _block_histogramdd and the
-    # function arguments are chunks of our sample array and then the
-    # bin information. The graph is stacked for each chunk, each
-    # building block is a D-dimensional histogram result.
+    # function arguments are chunks of our sample array followed by
+    # the bin information (range information is unncessary since we
+    # converted to arrays of bin edges). The graph is stacked for each
+    # chunk, each building block is a D-dimensional histogram result.
     dsk = {
-        (name, i, 0): (_block_histogramdd, k, bins_ref, range_ref)
+        (name, i, 0): (_block_histogramdd, k, bins_edges)
         for i, k in enumerate(dask.core.flatten(sample.__dask_keys__()))
     }
     # da.histogram does this to get the dtype (not obvious why)
     dtype = np.histogramdd([])[0].dtype
     # da.histogram does this to track possible dependencies from
     # potentially delayed binning information.
-    deps = (sample,) + deps
-    graph = HighLevelGraph.from_collections(name, dsk, dependencies=deps)
+    final_deps = (sample,) + deps
+    graph = HighLevelGraph.from_collections(name, dsk, dependencies=final_deps)
 
     ######################################################################
     ## this logic yields chunks where the shape is:
@@ -107,7 +110,7 @@ def dask_histogramdd(sample, bins, range, weights=None, density=None):
     ## 4. make dask Array and collapse the 0th axis (which has size
     ##    nchunks_in_sample)
     nchunks_in_sample = len(list(dask.core.flatten(sample.__dask_keys__())))
-    all_nbins = tuple((b.size - 1,) for b in possibly_delayed_bins)
+    all_nbins = tuple((b.size - 1,) for b in bins_edges)
     stacked_chunks = ((1,) * nchunks_in_sample, *all_nbins)
     mapped = da.Array(graph, name, stacked_chunks, dtype=dtype)
     # finally sum over sample chunk providing the final result array.
@@ -115,4 +118,16 @@ def dask_histogramdd(sample, bins, range, weights=None, density=None):
 
     # TODO: density operation logic (just some division).
 
-    return n, [b for b in possibly_delayed_bins]
+    summary = {
+        "result": n,
+        "edges": bins_edges,
+        "bins_ref": bins_ref,
+        "ranges_ref": ranges_ref,
+        "deps": deps,
+        "final_deps": final_deps,
+        "dsk": dsk,
+        "graph": graph,
+        "stacked_chunks": stacked_chunks,
+    }
+
+    return n, bins_edges, summary
