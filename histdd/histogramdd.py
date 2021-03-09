@@ -17,7 +17,7 @@ _RANGE = range
 def _block_histogramdd(sample, bins, range=None, weights=None):
     """Blocked numpy.histogramdd calculation.
 
-    "Wraps" the result into another axis via [np.newaxis]. This new
+    Slurps the result into another axis via [np.newaxis]. This new
     axis is used to stack chunked results and add them together later.
 
     """
@@ -25,7 +25,7 @@ def _block_histogramdd(sample, bins, range=None, weights=None):
 
 
 def dask_histogramdd(sample, bins, range, weights=None, density=None):
-    """Histogram data in multiple dimensions [**prototype**].
+    """Histogram data in multiple dimensions
 
     Dask version of :func:`np.histogramdd`.
 
@@ -34,7 +34,25 @@ def dask_histogramdd(sample, bins, range, weights=None, density=None):
     (xmin, xmax) entries (the range of each dimension).
 
     A lot of type/shape checking logic will be required for a
-    production implementation.
+    production implementation. Weights are currently unsupported as
+    well.
+
+    Parameters
+    ----------
+    sample : dask Array
+        Multidimensional data to histogram.
+    bins : sequence of ints
+        Number of bins in each dimension to histogram.
+    range : sequence of pairs
+        Axes limits in each dimension (xmin, xmax)
+    weights : dask Array, optional
+        Optional weights associated with the data. (TODO)
+    density : bool
+        Convert bins to values of a PDF (TODO)
+
+    See Also
+    --------
+    histogram
 
     """
 
